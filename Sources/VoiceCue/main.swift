@@ -90,7 +90,7 @@ final class TerminalUI {
             "  VoiceCue    /    hands-free shortcut control",
             "  \(rule)",
             "",
-            listeningPulseText(),
+            "",
             "     Say  Codex  or  Hey Codex",
             "",
             "  MICROPHONE",
