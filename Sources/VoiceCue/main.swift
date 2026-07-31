@@ -130,16 +130,33 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
     }
 }
 
-let accessibilityOptions = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-guard AXIsProcessTrustedWithOptions(accessibilityOptions) else {
-    fputs("VoiceCue opened the Accessibility permission prompt. Enable it in System Settings, then run VoiceCue again.\\n", stderr)
-    exit(1)
-}
-
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 let ui = TerminalUI()
 ui.start()
-let listener = WakeWordListener(ui: ui)
-listener.start()
+var listener: WakeWordListener?
+var permissionTimer: Timer?
+
+func beginWhenAccessibilityIsReady() {
+    if AXIsProcessTrusted() {
+        permissionTimer?.invalidate()
+        permissionTimer = nil
+        ui.render(status: "Accessibility enabled — preparing microphone…")
+        let newListener = WakeWordListener(ui: ui)
+        listener = newListener
+        newListener.start()
+        return
+    }
+
+    ui.render(status: "Enable Accessibility in System Settings to start listening.")
+}
+
+let accessibilityOptions = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+AXIsProcessTrustedWithOptions(accessibilityOptions)
+beginWhenAccessibilityIsReady()
+if listener == nil {
+    permissionTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+        beginWhenAccessibilityIsReady()
+    }
+}
 app.run()
