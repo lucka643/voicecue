@@ -10,6 +10,10 @@ LAUNCHER="$BIN_DIR/voicecue"
 "$ROOT_DIR/script/build_and_run.sh" --bundle-only
 rm -rf "$TARGET_APP"
 cp -R "$APP_BUNDLE" "$TARGET_APP"
+if ! file "$TARGET_APP/Contents/MacOS/VoiceCue" | grep -q 'Mach-O'; then
+  echo "Installation failed: VoiceCue app binary was not built correctly." >&2
+  exit 1
+fi
 mkdir -p "$BIN_DIR"
 rm -f "$LAUNCHER"
 cat > "$LAUNCHER" <<LAUNCHER_SCRIPT
@@ -27,5 +31,9 @@ fi
 exec "\$APP_BINARY" "\$@"
 LAUNCHER_SCRIPT
 chmod +x "$LAUNCHER"
+if ! file "$TARGET_APP/Contents/MacOS/VoiceCue" | grep -q 'Mach-O'; then
+  echo "Installation failed: launcher setup changed the VoiceCue app binary." >&2
+  exit 1
+fi
 echo "Installed VoiceCue. Run: voicecue"
 echo "Update later with: voicecue update"
