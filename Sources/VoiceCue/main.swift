@@ -1,4 +1,5 @@
 import ApplicationServices
+import AppKit
 import AVFoundation
 import Darwin
 import Foundation
@@ -11,6 +12,8 @@ final class TerminalUI {
     private var status = "Starting up…"
     private var heard = "—"
     private var microphoneLevel = 0.0
+    private var codexState = "Waiting for Codex"
+    private var codexLines = ["Open a Codex task to mirror visible activity here."]
     private var animationFrame = 0
     private var animationTimer: Timer?
 
@@ -37,6 +40,12 @@ final class TerminalUI {
         renderPulse()
     }
 
+    func renderCodexActivity(state: String, lines: [String]) {
+        codexState = state
+        codexLines = lines.isEmpty ? ["No visible Codex activity yet."] : lines
+        redrawCodexActivity()
+    }
+
     private func terminalSize() -> (width: Int, height: Int) {
         var windowSize = winsize()
         _ = ioctl(STDOUT_FILENO, TIOCGWINSZ, &windowSize)
@@ -57,6 +66,7 @@ final class TerminalUI {
         print("\u{001B}[?25l\u{001B}[2J\u{001B}[H", terminator: "")
         writeRow(2, "  ◜◝   VoiceCue", color: violet)
         writeRow(3, "        local wake phrase shortcut", color: muted)
+        redrawCodexActivity()
         writeRow(size.height - 4, divider, color: muted)
         writeRow(size.height - 1, "  Control-C to stop", color: muted)
         redrawLiveArea()
@@ -66,6 +76,16 @@ final class TerminalUI {
     private func redrawLiveArea() {
         let height = terminalSize().height
         writeRow(height - 3, "  \(status)   \(muted)· Heard: \(heard)")
+    }
+
+    private func redrawCodexActivity() {
+        let height = terminalSize().height
+        let firstRow = max(6, height - 11)
+        writeRow(firstRow, "  CODEX SESSION  \(muted)· \(codexState)", color: violet)
+        for offset in 0..<5 {
+            let line = offset < codexLines.count ? codexLines[offset] : ""
+            writeRow(firstRow + offset + 1, "    \(line)", color: offset == 0 ? reset : muted)
+        }
     }
 
     private func renderPulse() {
@@ -79,6 +99,72 @@ final class TerminalUI {
         default: orb = "●"
         }
         writeRow(height - 2, "  \(orbit)  \(orb)   Listening for Codex", color: violet)
+    }
+}
+
+final class CodexActivityMirror {
+    private let onUpdate: (String, [String]) -> Void
+    private var timer: Timer?
+    private var lastSnapshot = ""
+
+    init(onUpdate: @escaping (String, [String]) -> Void) {
+        self.onUpdate = onUpdate
+    }
+
+    func start() {
+        poll()
+        timer = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: true) { [weak self] _ in
+            self?.poll()
+        }
+    }
+
+    private func poll() {
+        guard let app = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName ?? "").lowercased().contains("codex") ||
+            ($0.bundleIdentifier ?? "").lowercased().contains("codex")
+        }) else {
+            onUpdate("Waiting for Codex", ["Open the Codex app to show visible activity."])
+            return
+        }
+
+        let root = AXUIElementCreateApplication(app.processIdentifier)
+        let visibleText = collectText(from: root, depth: 0)
+        let lines = visibleText
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && $0.count > 2 }
+            .suffix(4)
+
+        guard !lines.isEmpty else {
+            onUpdate("Codex open; no readable items", ["Codex is open, but this view has no exposed text."])
+            return
+        }
+
+        let snapshot = lines.joined(separator: "\n")
+        if snapshot != lastSnapshot {
+            lastSnapshot = snapshot
+            onUpdate("Mirroring visible activity", Array(lines))
+        }
+    }
+
+    private func collectText(from element: AXUIElement, depth: Int) -> String {
+        guard depth < 6 else { return "" }
+        var parts = [String]()
+        for attribute in [kAXTitleAttribute, kAXValueAttribute, kAXDescriptionAttribute] {
+            var value: CFTypeRef?
+            if AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
+               let text = value as? String {
+                parts.append(text)
+            }
+        }
+        var childrenValue: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenValue) == .success,
+           let children = childrenValue as? [AXUIElement] {
+            for child in children {
+                parts.append(collectText(from: child, depth: depth + 1))
+            }
+        }
+        return parts.joined(separator: "\n")
     }
 }
 
@@ -234,6 +320,10 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
 
 let ui = TerminalUI()
 ui.start()
+let codexMirror = CodexActivityMirror { state, lines in
+    ui.renderCodexActivity(state: state, lines: lines)
+}
+codexMirror.start()
 var listener: WakeWordListener?
 var permissionTimer: Timer?
 
