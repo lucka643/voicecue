@@ -3,12 +3,41 @@ import ApplicationServices
 import AVFoundation
 import Speech
 
+final class TerminalUI {
+    private let accent = "\u{001B}[38;5;183m"
+    private let muted = "\u{001B}[38;5;245m"
+    private let green = "\u{001B}[38;5;114m"
+    private let reset = "\u{001B}[0m"
+
+    func start() {
+        print("\u{001B}[2J\u{001B}[H", terminator: "")
+        print("\(accent)VoiceCue\(reset)")
+        print("\(muted)A quiet wake phrase listener\(reset)\n")
+        print("  \(green)●\(reset)  Listening for \(accent)Codex\(reset) or \(accent)Hey Codex\(reset)")
+        print("  \(muted)When heard, VoiceCue sends Control–Shift–V to your active app.\(reset)\n")
+        print("\(muted)  STATUS\(reset)")
+        render(status: "Starting up…")
+        print("\n\n\(muted)  Control-C to stop  ·  voicecue update to update\(reset)")
+        fflush(stdout)
+    }
+
+    func render(status: String) {
+        print("\u{001B}[8;1H  \(green)●\(reset)  \(status)\u{001B}[K", terminator: "")
+        fflush(stdout)
+    }
+}
+
 final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
     private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en_US"))!
     private let audioEngine = AVAudioEngine()
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var lastTrigger = Date.distantPast
+    private let ui: TerminalUI
+
+    init(ui: TerminalUI) {
+        self.ui = ui
+    }
 
     func start() {
         recognizer.delegate = self
@@ -19,7 +48,8 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
         SFSpeechRecognizer.requestAuthorization { [weak self] status in
             DispatchQueue.main.async {
                 guard status == .authorized else {
-                    fputs("Speech Recognition permission was not granted.\\n", stderr)
+                    self?.ui.render(status: "Speech Recognition permission was not granted.")
+                    fputs("Speech Recognition permission was not granted.\n", stderr)
                     NSApp.terminate(nil)
                     return
                 }
@@ -32,7 +62,8 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
         AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
             DispatchQueue.main.async {
                 guard granted else {
-                    fputs("Microphone permission was not granted.\\n", stderr)
+                    self?.ui.render(status: "Microphone permission was not granted.")
+                    fputs("Microphone permission was not granted.\n", stderr)
                     NSApp.terminate(nil)
                     return
                 }
@@ -67,9 +98,10 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
         do {
             audioEngine.prepare()
             try audioEngine.start()
-            print("Listening for ‘Codex’ or ‘Hey Codex’. Press Control-C to stop.")
+            ui.render(status: "Listening now.")
         } catch {
-            fputs("Could not start the microphone: \\(error.localizedDescription)\\n", stderr)
+            ui.render(status: "Could not start the microphone.")
+            fputs("Could not start the microphone: \(error.localizedDescription)\n", stderr)
             restartRecognitionSoon()
         }
     }
@@ -92,7 +124,9 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
         let up = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: false)
         up?.flags = flags
         up?.post(tap: .cghidEventTap)
-        print("Wake phrase recognized; sent Control-Shift-V.")
+        DispatchQueue.main.async { [weak self] in
+            self?.ui.render(status: "Wake phrase heard — sent Control–Shift–V.")
+        }
     }
 }
 
@@ -104,6 +138,8 @@ guard AXIsProcessTrustedWithOptions(accessibilityOptions) else {
 
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
-let listener = WakeWordListener()
+let ui = TerminalUI()
+ui.start()
+let listener = WakeWordListener(ui: ui)
 listener.start()
 app.run()
