@@ -6,11 +6,7 @@ import Speech
 
 final class TerminalUI {
     private let violet = "\u{001B}[38;5;141m"
-    private let green = "\u{001B}[38;5;114m"
-    private let cyan = "\u{001B}[38;5;117m"
     private let muted = "\u{001B}[38;5;244m"
-    private let panel = ""
-    private let header = ""
     private let reset = "\u{001B}[0m"
     private var status = "Starting up…"
     private var heard = "—"
@@ -20,128 +16,69 @@ final class TerminalUI {
 
     func start() {
         redraw()
-        animationTimer = Timer.scheduledTimer(withTimeInterval: 0.13, repeats: true) { [weak self] _ in
+        animationTimer = Timer.scheduledTimer(withTimeInterval: 0.16, repeats: true) { [weak self] _ in
             self?.animationFrame += 1
-            self?.renderListeningPulse()
+            self?.renderPulse()
         }
     }
 
     func render(status: String) {
         self.status = status
-        renderLiveRow(15, text: "  \(status)", color: reset)
+        redrawLiveArea()
     }
 
     func renderHeard(_ words: String) {
         heard = words.isEmpty ? "—" : words
-        renderLiveRow(12, text: "     \(heard)", color: reset)
+        redrawLiveArea()
     }
 
     func renderMicrophone(level: Double) {
         microphoneLevel = min(max(level, 0), 1)
-        let width = terminalSize().width
-        let meterWidth = max(12, min(42, width - 30))
-        let filled = Int((microphoneLevel * Double(meterWidth)).rounded())
-        let percent = Int((microphoneLevel * 100).rounded())
-        let label: String
-        let activeColor: String
-        switch percent {
-        case 0..<8:
-            label = "QUIET"
-            activeColor = cyan
-        case 8..<55:
-            label = "ACTIVE"
-            activeColor = green
-        default:
-            label = "LOUD"
-            activeColor = violet
-        }
-        let active = String(repeating: "█", count: filled)
-        let inactive = String(repeating: "─", count: meterWidth - filled)
-        let prefix = "     \(String(format: "%3d", percent))%  \(label)  "
-        let visibleLength = prefix.count + meterWidth
-        let padding = max(0, width - visibleLength)
-        print("\u{001B}[9;1H\(panel)\(cyan)\(prefix)\(activeColor)\(active)\(muted)\(inactive)\(reset)\(panel)\(String(repeating: " ", count: padding))\(reset)", terminator: "")
-        fflush(stdout)
+        renderPulse()
     }
 
     private func terminalSize() -> (width: Int, height: Int) {
         var windowSize = winsize()
-        ioctl(STDOUT_FILENO, TIOCGWINSZ, &windowSize)
-        let width = windowSize.ws_col > 0 ? Int(windowSize.ws_col) : 72
-        let height = windowSize.ws_row > 0 ? Int(windowSize.ws_row) : 22
-        return (width, height)
+        _ = ioctl(STDOUT_FILENO, TIOCGWINSZ, &windowSize)
+        return (windowSize.ws_col > 0 ? Int(windowSize.ws_col) : 72,
+                windowSize.ws_row > 0 ? Int(windowSize.ws_row) : 22)
     }
 
-    private func renderLiveRow(_ row: Int, text: String, color: String) {
+    private func writeRow(_ row: Int, _ text: String, color: String = "") {
         let width = terminalSize().width
         let clipped = String(text.prefix(width))
-        let padding = max(0, width - clipped.count)
-        print("\u{001B}[\(row);1H\(panel)\(color)\(clipped)\(reset)\(panel)\(String(repeating: " ", count: padding))\(reset)", terminator: "")
+        print("\u{001B}[\(row);1H\(color)\(clipped)\(reset)\u{001B}[K", terminator: "")
         fflush(stdout)
     }
 
     private func redraw() {
         let size = terminalSize()
-        let width = size.width
-        let contentWidth = width - 4
-        let rule = String(repeating: "─", count: contentWidth)
-        let rows = [
-            "",
-            "  VoiceCue    /    hands-free shortcut control",
-            "  \(rule)",
-            "",
-            "",
-            "     Say  Codex  or  Hey Codex",
-            "",
-            "  MICROPHONE",
-            "     Waiting for microphone input…",
-            "",
-            "  LIVE TRANSCRIPT",
-            "     \(heard)",
-            "",
-            "  STATUS",
-            "     \(status)",
-            "",
-            "  ACTION    Control–Shift–V  →  frontmost app",
-            "",
-            "  Control-C to stop                                      voicecue update"
-        ]
-
+        let divider = String(repeating: "─", count: max(1, size.width))
         print("\u{001B}[?25l\u{001B}[2J\u{001B}[H", terminator: "")
-        for (index, row) in rows.enumerated() {
-            let background = index < 3 ? header : panel
-            let color: String
-            switch index {
-            case 1: color = violet
-            case 4: color = green
-            case 7, 10, 13: color = cyan
-            case 18: color = muted
-            default: color = reset
-            }
-            let clipped = String(row.prefix(width))
-            let padding = max(0, width - clipped.count)
-            print("\(background)\(color)\(clipped)\(reset)\(background)\(String(repeating: " ", count: padding))\(reset)")
-        }
-        for _ in rows.count..<size.height {
-            print("\(panel)\(String(repeating: " ", count: width))\(reset)")
-        }
-        fflush(stdout)
+        writeRow(2, "  ◜◝   VoiceCue", color: violet)
+        writeRow(3, "        local wake phrase shortcut", color: muted)
+        writeRow(size.height - 4, divider, color: muted)
+        writeRow(size.height - 1, "  Control-C to stop", color: muted)
+        redrawLiveArea()
+        renderPulse()
     }
 
-    private func listeningPulseText() -> String {
-        let orbitFrames = ["·  ◌  ·", "•  ◌  ·", "·  ◉  •", "·  ◌  •"]
+    private func redrawLiveArea() {
+        let height = terminalSize().height
+        writeRow(height - 3, "  \(status)   \(muted)· Heard: \(heard)")
+    }
+
+    private func renderPulse() {
+        let height = terminalSize().height
+        let orbit = ["· ◌ ·", "• ◌ ·", "· ◉ •", "· ◌ •"][animationFrame % 4]
         let orb: String
         switch microphoneLevel {
-        case 0..<0.03: orb = "◌"
-        case 0..<0.18: orb = "◍"
-        case 0..<0.55: orb = "◉"
+        case 0..<0.04: orb = "◌"
+        case 0..<0.20: orb = "◍"
+        case 0..<0.60: orb = "◉"
         default: orb = "●"
         }
-        return "  \(orbitFrames[animationFrame % orbitFrames.count])   \(orb)  LISTENING"
-    }
-
-    private func renderListeningPulse() {
-        renderLiveRow(5, text: listeningPulseText(), color: violet)
+        writeRow(height - 2, "  \(orbit)  \(orb)   Listening for Codex", color: violet)
     }
 }
 
