@@ -1,6 +1,6 @@
-import AppKit
 import ApplicationServices
 import AVFoundation
+import Foundation
 import Speech
 
 final class TerminalUI {
@@ -79,7 +79,7 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
                 guard status == .authorized else {
                     self?.ui.render(status: "Speech Recognition permission was not granted.")
                     fputs("Speech Recognition permission was not granted.\n", stderr)
-                    NSApp.terminate(nil)
+                    exit(1)
                     return
                 }
                 self?.requestMicrophonePermission()
@@ -93,7 +93,7 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
                 guard granted else {
                     self?.ui.render(status: "Microphone permission was not granted.")
                     fputs("Microphone permission was not granted.\n", stderr)
-                    NSApp.terminate(nil)
+                    exit(1)
                     return
                 }
                 self?.beginRecognition()
@@ -203,8 +203,6 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
     }
 }
 
-let app = NSApplication.shared
-app.setActivationPolicy(.accessory)
 let ui = TerminalUI()
 ui.start()
 var listener: WakeWordListener?
@@ -232,4 +230,4 @@ if listener == nil {
         beginWhenAccessibilityIsReady()
     }
 }
-app.run()
+RunLoop.main.run()
