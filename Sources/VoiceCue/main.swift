@@ -114,6 +114,7 @@ final class CodexActivityMirror {
     }
 
     func start() {
+        requestScreenRecordingAccessIfNeeded()
         poll()
         timer = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: true) { [weak self] _ in
             self?.poll()
@@ -123,6 +124,11 @@ final class CodexActivityMirror {
     private func poll() {
         guard let app = targetCodexApplication() else {
             onUpdate("Waiting for Codex", ["Open the Codex app to show visible activity."])
+            return
+        }
+
+        if CGPreflightScreenCaptureAccess() {
+            mirrorWindowTextWithOCR(app)
             return
         }
 
@@ -151,10 +157,7 @@ final class CodexActivityMirror {
 
     private func mirrorWindowTextWithOCR(_ app: NSRunningApplication) {
         guard CGPreflightScreenCaptureAccess() else {
-            if !hasRequestedScreenCapture {
-                hasRequestedScreenCapture = true
-                _ = CGRequestScreenCaptureAccess()
-            }
+            requestScreenRecordingAccessIfNeeded()
             onUpdate("Screen Recording required", ["Allow Screen Recording for VoiceCue to mirror visible Codex messages."])
             return
         }
@@ -185,6 +188,12 @@ final class CodexActivityMirror {
                 }
             }
         }
+    }
+
+    private func requestScreenRecordingAccessIfNeeded() {
+        guard !CGPreflightScreenCaptureAccess(), !hasRequestedScreenCapture else { return }
+        hasRequestedScreenCapture = true
+        _ = CGRequestScreenCaptureAccess()
     }
 
     private func targetWindow(for app: NSRunningApplication) -> CGWindowID? {
