@@ -224,6 +224,7 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
         do {
             audioEngine.prepare()
             try audioEngine.start()
+            ui.renderMicrophone(level: 0)
             ui.render(status: "Listening now.")
         } catch {
             ui.render(status: "Could not start the microphone.")
