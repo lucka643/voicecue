@@ -76,7 +76,7 @@ final class TerminalUI {
             "     Say  Codex  or  Hey Codex",
             "",
             "  MICROPHONE",
-            microphoneMeterLine(),
+            "     Waiting for microphone input…",
             "",
             "  LIVE TRANSCRIPT",
             "     \(heard)",
