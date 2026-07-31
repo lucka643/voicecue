@@ -1,55 +1,95 @@
 import ApplicationServices
 import AVFoundation
+import Darwin
 import Foundation
 import Speech
 
 final class TerminalUI {
-    private let violet = "\u{001B}[38;5;183m"
+    private let violet = "\u{001B}[38;5;141m"
     private let green = "\u{001B}[38;5;114m"
-    private let muted = "\u{001B}[38;5;245m"
+    private let cyan = "\u{001B}[38;5;117m"
+    private let muted = "\u{001B}[38;5;244m"
+    private let panel = "\u{001B}[48;5;236m"
+    private let header = "\u{001B}[48;5;60m"
     private let reset = "\u{001B}[0m"
     private var status = "Starting up…"
     private var heard = "—"
+    private var microphoneLevel = 0.0
 
     func start() {
-        print("\u{001B}[2J\u{001B}[H", terminator: "")
-        print("\(violet)  VoiceCue\(reset)  \(muted)· wake phrase listener\(reset)")
-        print("\(muted)  ───────────────────────────────────────────\(reset)")
-        print("")
-        print("  \(green)●\(reset)  Listening for \(violet)Codex\(reset) or \(violet)Hey Codex\(reset)")
-        print("  \(muted)Sends Control–Shift–V to the frontmost app\(reset)")
-        print("")
-        print("  MICROPHONE")
-        print("  [                    ]  0%")
-        print("")
-        print("  STATUS")
-        print("  \(status)  \(muted)· Heard: \(heard)\(reset)")
-        print("")
-        print("  \(muted)Control-C to stop  ·  voicecue update to update\(reset)")
-        fflush(stdout)
+        redraw()
     }
 
     func render(status: String) {
         self.status = status
-        renderStatusLine()
+        redraw()
     }
 
     func renderHeard(_ words: String) {
         heard = words.isEmpty ? "—" : words
-        renderStatusLine()
-    }
-
-    private func renderStatusLine() {
-        print("\u{001B}[11;1H  \(status)  \(muted)· Heard: \(heard)\(reset)\u{001B}[K", terminator: "")
-        fflush(stdout)
+        redraw()
     }
 
     func renderMicrophone(level: Double) {
-        let clamped = min(max(level, 0), 1)
-        let filled = Int((clamped * 20).rounded())
-        let bar = String(repeating: "█", count: filled) + String(repeating: "·", count: 20 - filled)
-        let percent = Int((clamped * 100).rounded())
-        print("\u{001B}[8;1H  [\(green)\(bar)\(reset)]  \(percent)%\u{001B}[K", terminator: "")
+        microphoneLevel = min(max(level, 0), 1)
+        redraw()
+    }
+
+    private func terminalSize() -> (width: Int, height: Int) {
+        var windowSize = winsize()
+        ioctl(STDOUT_FILENO, TIOCGWINSZ, &windowSize)
+        return (max(Int(windowSize.ws_col), 72), max(Int(windowSize.ws_row), 22))
+    }
+
+    private func redraw() {
+        let size = terminalSize()
+        let width = size.width
+        let contentWidth = width - 4
+        let rule = String(repeating: "─", count: contentWidth)
+        let percent = Int((microphoneLevel * 100).rounded())
+        let meterWidth = max(28, min(58, contentWidth - 22))
+        let filled = Int((microphoneLevel * Double(meterWidth)).rounded())
+        let meter = String(repeating: "▰", count: filled) + String(repeating: "▱", count: meterWidth - filled)
+        let pulse = microphoneLevel > 0.03 ? "●" : "○"
+        let rows = [
+            "",
+            "  VoiceCue    /    hands-free shortcut control",
+            "  \(rule)",
+            "",
+            "  \(pulse)  LISTENING",
+            "     Say  Codex  or  Hey Codex",
+            "",
+            "  MICROPHONE",
+            "     [\(meter)]  \(percent)%",
+            "",
+            "  LIVE TRANSCRIPT",
+            "     \(heard)",
+            "",
+            "  STATUS",
+            "     \(status)",
+            "",
+            "  ACTION    Control–Shift–V  →  frontmost app",
+            "",
+            "  Control-C to stop                                      voicecue update"
+        ]
+
+        print("\u{001B}[?25l\u{001B}[2J\u{001B}[H", terminator: "")
+        for (index, row) in rows.enumerated() {
+            let background = index < 3 ? header : panel
+            let color: String
+            switch index {
+            case 1: color = violet
+            case 4: color = green
+            case 7, 10, 13: color = cyan
+            case 18: color = muted
+            default: color = reset
+            }
+            let padding = max(0, width - row.count)
+            print("\(background)\(color)\(row)\(reset)\(background)\(String(repeating: " ", count: padding))\(reset)")
+        }
+        for _ in rows.count..<size.height {
+            print("\(panel)\(String(repeating: " ", count: width))\(reset)")
+        }
         fflush(stdout)
     }
 }
