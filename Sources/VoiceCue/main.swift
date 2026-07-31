@@ -80,9 +80,9 @@ final class TerminalUI {
 
     private func redrawCodexActivity() {
         let height = terminalSize().height
-        let firstRow = max(6, height - 11)
+        let firstRow = max(6, height - 14)
         writeRow(firstRow, "  CODEX SESSION  \(muted)· \(codexState)", color: violet)
-        for offset in 0..<5 {
+        for offset in 0..<8 {
             let line = offset < codexLines.count ? codexLines[offset] : ""
             writeRow(firstRow + offset + 1, "    \(line)", color: offset == 0 ? reset : muted)
         }
@@ -119,21 +119,19 @@ final class CodexActivityMirror {
     }
 
     private func poll() {
-        guard let app = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName ?? "").lowercased().contains("codex") ||
-            ($0.bundleIdentifier ?? "").lowercased().contains("codex")
-        }) else {
+        guard let app = targetCodexApplication() else {
             onUpdate("Waiting for Codex", ["Open the Codex app to show visible activity."])
             return
         }
 
         let root = AXUIElementCreateApplication(app.processIdentifier)
         let visibleText = collectText(from: root, depth: 0)
-        let lines = visibleText
+        let rawLines = visibleText
             .split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty && $0.count > 2 }
-            .suffix(4)
+        var seen = Set<String>()
+        let lines = rawLines.filter { seen.insert($0).inserted }.suffix(8)
 
         guard !lines.isEmpty else {
             onUpdate("Codex open; no readable items", ["Codex is open, but this view has no exposed text."])
@@ -145,6 +143,20 @@ final class CodexActivityMirror {
             lastSnapshot = snapshot
             onUpdate("Mirroring visible activity", Array(lines))
         }
+    }
+
+    private func targetCodexApplication() -> NSRunningApplication? {
+        let applications = NSWorkspace.shared.runningApplications
+        let isCodexHost: (NSRunningApplication) -> Bool = { app in
+            let name = (app.localizedName ?? "").lowercased()
+            let bundle = (app.bundleIdentifier ?? "").lowercased()
+            return name == "chatgpt" || name == "codex" || bundle.contains("chatgpt") || bundle == "com.openai.codex"
+        }
+        if let frontmost = NSWorkspace.shared.frontmostApplication, isCodexHost(frontmost) {
+            return frontmost
+        }
+        return applications.first(where: { ($0.localizedName ?? "").lowercased() == "chatgpt" })
+            ?? applications.first(where: isCodexHost)
     }
 
     private func collectText(from element: AXUIElement, depth: Int) -> String {
