@@ -60,6 +60,7 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var lastTrigger = Date.distantPast
+    private var hasTriggeredCurrentUtterance = false
     private var lastMeterUpdate = Date.distantPast
     private let ui: TerminalUI
 
@@ -102,6 +103,7 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
 
     private func beginRecognition() {
         task?.cancel()
+        hasTriggeredCurrentUtterance = false
         let recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
         recognitionRequest.shouldReportPartialResults = true
         recognitionRequest.contextualStrings = ["Codex", "Hey Codex"]
@@ -118,7 +120,8 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
         task = recognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
             if let text = result?.bestTranscription.formattedString.lowercased() {
                 self?.updateHeardWords(from: text)
-                if self?.containsWakePhrase(text) == true {
+                if self?.containsWakePhrase(text) == true,
+                   self?.hasTriggeredCurrentUtterance == false {
                     self?.triggerPasteShortcut()
                 }
             }
@@ -185,6 +188,7 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
     private func triggerPasteShortcut() {
         guard Date().timeIntervalSince(lastTrigger) > 1.5 else { return }
         lastTrigger = Date()
+        hasTriggeredCurrentUtterance = true
         let source = CGEventSource(stateID: .hidSystemState)
         let flags: CGEventFlags = [.maskControl, .maskShift]
         let down = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: true)
