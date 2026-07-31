@@ -14,7 +14,8 @@ VoiceCue listens for **“Codex”** or **“Hey Codex”** and sends **Control�
 - Live microphone level meter, so you can see audio is reaching the app.
 - A compact “Heard” readout showing the last two recognized words.
 - One activation per spoken phrase—no repeated toggles from partial transcripts.
-- No account, no saved audio, and no saved transcripts.
+- A full-height, chronological terminal conversation view: your spoken command, then Codex’s live turn state.
+- No account, no VoiceCue history files, no stored recordings, and no stored transcripts.
 
 ## Install
 
@@ -42,7 +43,19 @@ On the first run, allow VoiceCue to use:
 2. **Speech Recognition** — to recognize it.
 3. **Accessibility** — to send the keyboard shortcut to your active app.
 
+When you first use a wake phrase after this update, macOS may also ask for **Screen Recording**. VoiceCue uses that permission only for a short, sixty-second system-audio window after a wake phrase, so it can tell when Codex starts and stops speaking. It does not save or send that audio anywhere.
+
 Press `Control-C` whenever you want to stop VoiceCue.
+
+### Optional visible-window mirror
+
+VoiceCue does not inspect other apps by default. If you deliberately want it to try mirroring readable text from a visible Codex window, start it with:
+
+```bash
+voicecue --mirror
+```
+
+That optional mode uses Screen Recording and macOS Accessibility. It is best-effort only; the default conversation view works without it.
 
 ## Keep it current
 
@@ -52,6 +65,8 @@ voicecue update
 
 This gets the newest version from this repository, rebuilds it, and reinstalls it.
 
+The installer removes its temporary Swift build cache after a successful install to keep the clone small. Set `VOICECUE_KEEP_BUILD_CACHE=1` only if you are actively developing VoiceCue and want faster rebuilds.
+
 ## Requirements
 
 - macOS 14 or later
@@ -59,7 +74,7 @@ This gets the newest version from this repository, rebuilds it, and reinstalls i
 
 ## Privacy
 
-VoiceCue does not create an account, save recordings, or save transcripts. Speech recognition is supplied by macOS and may use Apple’s speech service depending on system settings.
+VoiceCue creates no account or history database, and it does not write recordings or transcripts to disk. Your terminal may retain its own scrollback, which you control. Speech recognition is supplied by macOS and may use Apple’s speech service depending on system settings. The default app does not inspect the screen or run system-audio capture until you ask it to wake Codex.
 
 ## Development
 

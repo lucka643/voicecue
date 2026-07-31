@@ -11,8 +11,8 @@ APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 INFO_PLIST="$APP_BUNDLE/Contents/Info.plist"
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
-swift build
-BUILD_BINARY="$(swift build --show-bin-path)/$APP_NAME"
+swift build -c release
+BUILD_BINARY="$(swift build -c release --show-bin-path)/$APP_NAME"
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS"
 cp "$BUILD_BINARY" "$APP_BINARY"
@@ -25,6 +25,12 @@ plutil -create xml1 "$INFO_PLIST"
 /usr/libexec/PlistBuddy -c 'Add :LSMinimumSystemVersion string 14.0' "$INFO_PLIST"
 /usr/libexec/PlistBuddy -c 'Add :NSSpeechRecognitionUsageDescription string VoiceCue listens locally for its wake phrase.' "$INFO_PLIST"
 /usr/libexec/PlistBuddy -c 'Add :NSMicrophoneUsageDescription string VoiceCue needs microphone access to recognize its wake phrase.' "$INFO_PLIST"
+codesign --force --sign - "$APP_BUNDLE"
+codesign --verify --deep --strict "$APP_BUNDLE"
+if codesign -d --entitlements :- "$APP_BINARY" 2>&1 | grep -q 'get-task-allow'; then
+  echo "Refusing to package a debug-entitled VoiceCue binary." >&2
+  exit 1
+fi
 
 case "$MODE" in
   run) exec "$APP_BINARY" ;;
