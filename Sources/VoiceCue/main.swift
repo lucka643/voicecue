@@ -1,12 +1,10 @@
 import ApplicationServices
-import AppKit
 import AVFoundation
 import CoreMedia
 import Darwin
 import Foundation
 import ScreenCaptureKit
 import Speech
-import Vision
 
 final class TerminalUI {
     private let violet = "\u{001B}[38;5;141m"
@@ -16,7 +14,6 @@ final class TerminalUI {
     private var heard = "—"
     private var microphoneLevel = 0.0
     private var turnState = "Listening for your voice"
-    private var lastMirroredText = ""
     private var conversation = [ConversationEntry]()
     private var animationFrame = 0
     private var animationTimer: Timer?
@@ -58,14 +55,6 @@ final class TerminalUI {
         renderPulse()
     }
 
-    func renderCodexActivity(state: String, lines: [String]) {
-        guard state == "Mirroring visible conversation" else { return }
-        let text = lines.joined(separator: " ")
-        guard !text.isEmpty, text != lastMirroredText else { return }
-        lastMirroredText = text
-        appendConversation(speaker: .codex, text: text)
-    }
-
     func renderSpokenPrompt(_ prompt: String) {
         guard !prompt.isEmpty else { return }
         if let index = conversation.lastIndex(where: { $0.speaker == .you && $0.isLive }) {
@@ -97,6 +86,18 @@ final class TerminalUI {
                 scheduleConversationRedraw()
             }
         }
+    }
+
+    func renderCodexSpeech(_ transcript: String) {
+        let boundedTranscript = String(transcript.prefix(1_200))
+        guard !boundedTranscript.isEmpty else { return }
+        if let index = conversation.lastIndex(where: { $0.speaker == .codex && $0.isLive }) {
+            conversation[index].text = boundedTranscript
+        } else {
+            appendConversation(speaker: .codex, text: boundedTranscript, isLive: true)
+            return
+        }
+        scheduleConversationRedraw()
     }
 
     private func terminalSize() -> (width: Int, height: Int) {
@@ -210,167 +211,13 @@ final class TerminalUI {
     }
 }
 
-final class CodexActivityMirror {
-    private let onUpdate: (String, [String]) -> Void
-    private var timer: Timer?
-    private var lastSnapshot = ""
-    private var hasRequestedScreenCapture = false
-    private var isRecognizingOCR = false
-    private var accessibilityNodeBudget = 0
-
-    init(onUpdate: @escaping (String, [String]) -> Void) {
-        self.onUpdate = onUpdate
-    }
-
-    func start() {
-        poll()
-        timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
-            self?.poll()
-        }
-    }
-
-    private func poll() {
-        guard let app = targetCodexApplication() else {
-            onUpdate("Waiting for Codex", ["Open the Codex app to show visible activity."])
-            return
-        }
-
-        if CGPreflightScreenCaptureAccess(), !app.isHidden {
-            mirrorWindowTextWithOCR(app)
-            return
-        }
-
-        let applicationElement = AXUIElementCreateApplication(app.processIdentifier)
-        let focusedElement = focusedWindow(for: applicationElement) ?? applicationElement
-        accessibilityNodeBudget = 240
-        let visibleText = collectText(from: focusedElement, depth: 0)
-        let ignoredChrome = Set(["Documentation", "Keyboard Shortcuts", "What's New", "Troubleshooting", "System Status", "Send Feedback", "Task Manager", "Start Performance Trace"])
-        let rawLines = visibleText
-            .split(whereSeparator: \.isNewline)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && $0.count > 2 && !ignoredChrome.contains($0) }
-        var seen = Set<String>()
-        let lines = rawLines.filter { seen.insert($0).inserted }.suffix(8)
-
-        guard !lines.isEmpty else {
-            mirrorWindowTextWithOCR(app)
-            return
-        }
-
-        let snapshot = lines.joined(separator: "\n")
-        if snapshot != lastSnapshot {
-            lastSnapshot = snapshot
-            onUpdate("Mirroring visible activity", Array(lines))
-        }
-    }
-
-    private func mirrorWindowTextWithOCR(_ app: NSRunningApplication) {
-        guard !isRecognizingOCR else { return }
-        guard CGPreflightScreenCaptureAccess() else {
-            requestScreenRecordingAccessIfNeeded()
-            onUpdate("Screen Recording required", ["Allow Screen Recording for VoiceCue to mirror visible Codex messages."])
-            return
-        }
-        guard let window = targetWindow(for: app),
-              let image = CGWindowListCreateImage(.null, .optionIncludingWindow, window, .boundsIgnoreFraming) else {
-            onUpdate("Codex open; no readable items", ["Bring the Codex conversation window on screen to mirror it."])
-            return
-        }
-
-        isRecognizingOCR = true
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            let request = VNRecognizeTextRequest()
-            request.recognitionLevel = .fast
-            request.usesLanguageCorrection = true
-            let handler = VNImageRequestHandler(cgImage: image, options: [:])
-            try? handler.perform([request])
-            let lines = request.results?
-                .compactMap { $0.topCandidates(1).first?.string }
-                .filter { !$0.isEmpty }
-                .suffix(8) ?? []
-            let snapshot = lines.joined(separator: "\n")
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.isRecognizingOCR = false
-                if snapshot.isEmpty {
-                    self.onUpdate("Codex visible; no text found", ["Waiting for visible Codex conversation text."])
-                } else if snapshot != self.lastSnapshot {
-                    self.lastSnapshot = snapshot
-                    self.onUpdate("Mirroring visible conversation", Array(lines))
-                }
-            }
-        }
-    }
-
-    private func requestScreenRecordingAccessIfNeeded() {
-        guard !CGPreflightScreenCaptureAccess(), !hasRequestedScreenCapture else { return }
-        hasRequestedScreenCapture = true
-        _ = CGRequestScreenCaptureAccess()
-    }
-
-    private func targetWindow(for app: NSRunningApplication) -> CGWindowID? {
-        guard let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
-            return nil
-        }
-        for window in windows {
-            guard let ownerPID = window[kCGWindowOwnerPID as String] as? Int32,
-                  ownerPID == app.processIdentifier,
-                  let number = window[kCGWindowNumber as String] as? UInt32 else { continue }
-            return CGWindowID(number)
-        }
-        return nil
-    }
-
-    private func targetCodexApplication() -> NSRunningApplication? {
-        let applications = NSWorkspace.shared.runningApplications
-        let isCodexHost: (NSRunningApplication) -> Bool = { app in
-            let name = (app.localizedName ?? "").lowercased()
-            let bundle = (app.bundleIdentifier ?? "").lowercased()
-            return name == "chatgpt" || name == "codex" || bundle.contains("chatgpt") || bundle == "com.openai.codex"
-        }
-        if let frontmost = NSWorkspace.shared.frontmostApplication, isCodexHost(frontmost) {
-            return frontmost
-        }
-        return applications.first(where: { ($0.localizedName ?? "").lowercased() == "chatgpt" })
-            ?? applications.first(where: isCodexHost)
-    }
-
-    private func focusedWindow(for applicationElement: AXUIElement) -> AXUIElement? {
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(applicationElement, kAXFocusedWindowAttribute as CFString, &value) == .success else {
-            return nil
-        }
-        return value as! AXUIElement
-    }
-
-    private func collectText(from element: AXUIElement, depth: Int) -> String {
-        guard depth < 6, accessibilityNodeBudget > 0 else { return "" }
-        accessibilityNodeBudget -= 1
-        var parts = [String]()
-        for attribute in [kAXTitleAttribute, kAXValueAttribute, kAXDescriptionAttribute] {
-            var value: CFTypeRef?
-            if AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
-               let text = value as? String {
-                parts.append(text)
-            }
-        }
-        var childrenValue: CFTypeRef?
-        if AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenValue) == .success,
-           let children = childrenValue as? [AXUIElement] {
-            for child in children {
-                parts.append(collectText(from: child, depth: depth + 1))
-            }
-        }
-        return String(parts.joined(separator: "\n").prefix(16_000))
-    }
-}
-
 final class TurnCoordinator {
     private let ui: TerminalUI
     private var onResponseWindow: (() -> Void)?
     private var userActiveUntil = Date.distantPast
     private var systemActiveUntil = Date.distantPast
     private var waitingForCodexUntil = Date.distantPast
+    private var hasHeardCodexSinceWake = false
     private var lastRenderedState = ""
     private var timer: Timer?
 
@@ -397,10 +244,12 @@ final class TurnCoordinator {
     func heardSystemAudio(level: Double) {
         guard level > 0.025 else { return }
         systemActiveUntil = Date().addingTimeInterval(0.55)
+        hasHeardCodexSinceWake = true
     }
 
     func sentWakeShortcut() {
         waitingForCodexUntil = Date().addingTimeInterval(12)
+        hasHeardCodexSinceWake = false
         onResponseWindow?()
         refresh()
     }
@@ -412,7 +261,7 @@ final class TurnCoordinator {
             state = "Codex is speaking"
         } else if userActiveUntil > now {
             state = "You are speaking"
-        } else if waitingForCodexUntil > now {
+        } else if waitingForCodexUntil > now, !hasHeardCodexSinceWake {
             state = "Codex is thinking"
         } else {
             state = "Listening for your voice"
@@ -423,9 +272,55 @@ final class TurnCoordinator {
     }
 }
 
+final class SystemSpeechTranscriber {
+    private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en_US"))!
+    private let onTranscript: (String) -> Void
+    private var request: SFSpeechAudioBufferRecognitionRequest?
+    private var task: SFSpeechRecognitionTask?
+    private var lastTranscript = ""
+
+    init(onTranscript: @escaping (String) -> Void) {
+        self.onTranscript = onTranscript
+    }
+
+    func start() {
+        guard SFSpeechRecognizer.authorizationStatus() == .authorized else { return }
+        task?.cancel()
+        let newRequest = SFSpeechAudioBufferRecognitionRequest()
+        newRequest.shouldReportPartialResults = true
+        newRequest.requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
+        request = newRequest
+        lastTranscript = ""
+        task = recognizer.recognitionTask(with: newRequest) { [weak self] result, _ in
+            guard let self,
+                  let text = result?.bestTranscription.formattedString.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !text.isEmpty,
+                  text != self.lastTranscript else { return }
+            self.lastTranscript = text
+            DispatchQueue.main.async {
+                self.onTranscript(text)
+            }
+        }
+    }
+
+    func append(_ sampleBuffer: CMSampleBuffer) {
+        request?.appendAudioSampleBuffer(sampleBuffer)
+    }
+
+    func stop() {
+        request?.endAudio()
+        request = nil
+        task?.cancel()
+        task = nil
+    }
+}
+
 final class SystemAudioMonitor: NSObject, SCStreamOutput {
     private let onLevel: (Double) -> Void
     private let onPermissionNeeded: () -> Void
+    private let onCaptureStarted: () -> Void
+    private let onCaptureStopped: () -> Void
+    private let onSampleBuffer: (CMSampleBuffer) -> Void
     private var stream: SCStream?
     private var lastMeterUpdate = Date.distantPast
     private var responseWindowEnds = Date.distantPast
@@ -433,9 +328,18 @@ final class SystemAudioMonitor: NSObject, SCStreamOutput {
     private var isStarting = false
     private let sampleQueue = DispatchQueue(label: "local.voicecue.system-audio", qos: .utility)
 
-    init(onLevel: @escaping (Double) -> Void, onPermissionNeeded: @escaping () -> Void) {
+    init(
+        onLevel: @escaping (Double) -> Void,
+        onPermissionNeeded: @escaping () -> Void,
+        onCaptureStarted: @escaping () -> Void,
+        onCaptureStopped: @escaping () -> Void,
+        onSampleBuffer: @escaping (CMSampleBuffer) -> Void
+    ) {
         self.onLevel = onLevel
         self.onPermissionNeeded = onPermissionNeeded
+        self.onCaptureStarted = onCaptureStarted
+        self.onCaptureStopped = onCaptureStopped
+        self.onSampleBuffer = onSampleBuffer
     }
 
     func activateForResponseWindow() {
@@ -448,7 +352,9 @@ final class SystemAudioMonitor: NSObject, SCStreamOutput {
             return
         }
         isStarting = true
-        Task { [weak self] in
+        let captureStarted = onCaptureStarted
+        let levelHandler = onLevel
+        Task { [weak self, captureStarted, levelHandler] in
             guard let self else { return }
             defer { self.isStarting = false }
             do {
@@ -465,9 +371,12 @@ final class SystemAudioMonitor: NSObject, SCStreamOutput {
                 try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: sampleQueue)
                 try await stream.startCapture()
                 self.stream = stream
+                DispatchQueue.main.async {
+                    captureStarted()
+                }
             } catch {
-                DispatchQueue.main.async { [weak self] in
-                    self?.onLevel(0)
+                DispatchQueue.main.async {
+                    levelHandler(0)
                 }
             }
         }
@@ -487,14 +396,16 @@ final class SystemAudioMonitor: NSObject, SCStreamOutput {
         stopTimer = nil
         guard let stream else { return }
         self.stream = nil
+        onCaptureStopped()
         Task {
             try? await stream.stopCapture()
         }
     }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard type == .audio,
-              Date().timeIntervalSince(lastMeterUpdate) > 0.08 else { return }
+        guard type == .audio else { return }
+        onSampleBuffer(sampleBuffer)
+        guard Date().timeIntervalSince(lastMeterUpdate) > 0.08 else { return }
         lastMeterUpdate = Date()
         var audioBufferList = AudioBufferList(mNumberBuffers: 0, mBuffers: AudioBuffer())
         var retainedBlockBuffer: CMBlockBuffer?
@@ -556,7 +467,6 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
                     self?.ui.render(status: "Speech Recognition permission was not granted.")
                     fputs("Speech Recognition permission was not granted.\n", stderr)
                     exit(1)
-                    return
                 }
                 self?.requestMicrophonePermission()
             }
@@ -570,7 +480,6 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
                     self?.ui.render(status: "Microphone permission was not granted.")
                     fputs("Microphone permission was not granted.\n", stderr)
                     exit(1)
-                    return
                 }
                 self?.beginRecognition()
             }
@@ -724,24 +633,28 @@ let ui = TerminalUI()
 ui.start()
 let turnCoordinator = TurnCoordinator(ui: ui)
 turnCoordinator.start()
+let systemSpeechTranscriber = SystemSpeechTranscriber { transcript in
+    ui.renderCodexSpeech(transcript)
+}
 let systemAudioMonitor = SystemAudioMonitor(
     onLevel: { level in
         turnCoordinator.heardSystemAudio(level: level)
     },
     onPermissionNeeded: {
         ui.render(status: "Allow Screen Recording to recognize when Codex speaks.")
+    },
+    onCaptureStarted: {
+        systemSpeechTranscriber.start()
+    },
+    onCaptureStopped: {
+        systemSpeechTranscriber.stop()
+    },
+    onSampleBuffer: { sampleBuffer in
+        systemSpeechTranscriber.append(sampleBuffer)
     }
 )
 turnCoordinator.setResponseWindowHandler {
     systemAudioMonitor.activateForResponseWindow()
-}
-var codexMirror: CodexActivityMirror?
-if CommandLine.arguments.contains("--mirror") {
-    let mirror = CodexActivityMirror { state, lines in
-        ui.renderCodexActivity(state: state, lines: lines)
-    }
-    codexMirror = mirror
-    mirror.start()
 }
 var listener: WakeWordListener?
 var permissionTimer: Timer?

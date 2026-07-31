@@ -14,7 +14,7 @@ VoiceCue listens for **“Codex”** or **“Hey Codex”** and sends **Control�
 - Live microphone level meter, so you can see audio is reaching the app.
 - A compact “Heard” readout showing the last two recognized words.
 - One activation per spoken phrase—no repeated toggles from partial transcripts.
-- A full-height, chronological terminal conversation view: your spoken command, then Codex’s live turn state.
+- A full-height, chronological terminal conversation view: your spoken command, then Codex’s live turn state and spoken reply when macOS can transcribe the system-audio response.
 - No account, no VoiceCue history files, no stored recordings, and no stored transcripts.
 
 ## Install
@@ -43,19 +43,9 @@ On the first run, allow VoiceCue to use:
 2. **Speech Recognition** — to recognize it.
 3. **Accessibility** — to send the keyboard shortcut to your active app.
 
-When you first use a wake phrase after this update, macOS may also ask for **Screen Recording**. VoiceCue uses that permission only for a short, sixty-second system-audio window after a wake phrase, so it can tell when Codex starts and stops speaking. It does not save or send that audio anywhere.
+When you first use a wake phrase after this update, macOS may also ask for **Screen Recording**. VoiceCue uses that permission only for a short, sixty-second system-audio window after a wake phrase, so it can tell when Codex starts and stops speaking and can transcribe its spoken reply. It does not save that audio or the resulting text anywhere.
 
 Press `Control-C` whenever you want to stop VoiceCue.
-
-### Optional visible-window mirror
-
-VoiceCue does not inspect other apps by default. If you deliberately want it to try mirroring readable text from a visible Codex window, start it with:
-
-```bash
-voicecue --mirror
-```
-
-That optional mode uses Screen Recording and macOS Accessibility. It is best-effort only; the default conversation view works without it.
 
 ## Keep it current
 
