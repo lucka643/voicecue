@@ -15,6 +15,7 @@ final class TerminalUI {
     private var microphoneLevel = 0.0
     private var codexState = "Waiting for Codex"
     private var codexLines = ["Open a Codex task to mirror visible activity here."]
+    private var spokenPrompt = ""
     private var animationFrame = 0
     private var animationTimer: Timer?
 
@@ -44,6 +45,11 @@ final class TerminalUI {
     func renderCodexActivity(state: String, lines: [String]) {
         codexState = state
         codexLines = lines.isEmpty ? ["No visible Codex activity yet."] : lines
+        redrawCodexActivity()
+    }
+
+    func renderSpokenPrompt(_ prompt: String) {
+        spokenPrompt = prompt
         redrawCodexActivity()
     }
 
@@ -82,10 +88,11 @@ final class TerminalUI {
     private func redrawCodexActivity() {
         let height = terminalSize().height
         let firstRow = max(6, height - 14)
-        writeRow(firstRow, "  CODEX SESSION  \(muted)· \(codexState)", color: violet)
-        for offset in 0..<8 {
+        writeRow(firstRow, "  YOU  \(muted)· \(spokenPrompt.isEmpty ? "Waiting for a voice command…" : spokenPrompt)", color: violet)
+        writeRow(firstRow + 2, "  CODEX SESSION  \(muted)· \(codexState)", color: violet)
+        for offset in 0..<6 {
             let line = offset < codexLines.count ? codexLines[offset] : ""
-            writeRow(firstRow + offset + 1, "    \(line)", color: offset == 0 ? reset : muted)
+            writeRow(firstRow + offset + 3, "    \(line)", color: offset == 0 ? reset : muted)
         }
     }
 
@@ -259,6 +266,7 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
     private var task: SFSpeechRecognitionTask?
     private var lastTrigger = Date.distantPast
     private var hasTriggeredCurrentUtterance = false
+    private var lastShownPrompt = ""
     private var lastMeterUpdate = Date.distantPast
     private let ui: TerminalUI
 
@@ -322,6 +330,7 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
                    self?.hasTriggeredCurrentUtterance == false {
                     self?.triggerPasteShortcut()
                 }
+                self?.updateSpokenPrompt(from: text)
             }
             if error != nil || result?.isFinal == true {
                 self?.restartRecognitionSoon()
@@ -372,6 +381,22 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
             .joined(separator: " ")
         DispatchQueue.main.async { [weak self] in
             self?.ui.renderHeard(words)
+        }
+    }
+
+    private func updateSpokenPrompt(from transcript: String) {
+        guard hasTriggeredCurrentUtterance else { return }
+        let words = transcript
+            .split(whereSeparator: { $0.isWhitespace || $0.isPunctuation })
+            .map(String.init)
+        let wakeWords = Set(["codex", "codec", "kodak", "codak"])
+        let prompt = words
+            .drop { $0 == "hey" || wakeWords.contains($0) }
+            .joined(separator: " ")
+        guard !prompt.isEmpty, prompt != lastShownPrompt else { return }
+        lastShownPrompt = prompt
+        DispatchQueue.main.async { [weak self] in
+            self?.ui.renderSpokenPrompt(prompt)
         }
     }
 
