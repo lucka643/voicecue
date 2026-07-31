@@ -4,6 +4,7 @@ import AVFoundation
 import Darwin
 import Foundation
 import Speech
+import Vision
 
 final class TerminalUI {
     private let violet = "\u{001B}[38;5;141m"
@@ -106,6 +107,7 @@ final class CodexActivityMirror {
     private let onUpdate: (String, [String]) -> Void
     private var timer: Timer?
     private var lastSnapshot = ""
+    private var hasRequestedScreenCapture = false
 
     init(onUpdate: @escaping (String, [String]) -> Void) {
         self.onUpdate = onUpdate
@@ -127,15 +129,16 @@ final class CodexActivityMirror {
         let applicationElement = AXUIElementCreateApplication(app.processIdentifier)
         let focusedElement = focusedWindow(for: applicationElement) ?? applicationElement
         let visibleText = collectText(from: focusedElement, depth: 0)
+        let ignoredChrome = Set(["Documentation", "Keyboard Shortcuts", "What's New", "Troubleshooting", "System Status", "Send Feedback", "Task Manager", "Start Performance Trace"])
         let rawLines = visibleText
             .split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && $0.count > 2 }
+            .filter { !$0.isEmpty && $0.count > 2 && !ignoredChrome.contains($0) }
         var seen = Set<String>()
         let lines = rawLines.filter { seen.insert($0).inserted }.suffix(8)
 
         guard !lines.isEmpty else {
-            onUpdate("Codex open; no readable items", ["Codex is open, but this view has no exposed text."])
+            mirrorWindowTextWithOCR(app)
             return
         }
 
@@ -144,6 +147,57 @@ final class CodexActivityMirror {
             lastSnapshot = snapshot
             onUpdate("Mirroring visible activity", Array(lines))
         }
+    }
+
+    private func mirrorWindowTextWithOCR(_ app: NSRunningApplication) {
+        guard CGPreflightScreenCaptureAccess() else {
+            if !hasRequestedScreenCapture {
+                hasRequestedScreenCapture = true
+                _ = CGRequestScreenCaptureAccess()
+            }
+            onUpdate("Screen Recording required", ["Allow Screen Recording for VoiceCue to mirror visible Codex messages."])
+            return
+        }
+        guard let window = targetWindow(for: app),
+              let image = CGWindowListCreateImage(.null, .optionIncludingWindow, window, .boundsIgnoreFraming) else {
+            onUpdate("Codex open; no readable items", ["Bring the Codex conversation window on screen to mirror it."])
+            return
+        }
+
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .fast
+            request.usesLanguageCorrection = true
+            let handler = VNImageRequestHandler(cgImage: image, options: [:])
+            try? handler.perform([request])
+            let lines = request.results?
+                .compactMap { $0.topCandidates(1).first?.string }
+                .filter { !$0.isEmpty }
+                .suffix(8) ?? []
+            let snapshot = lines.joined(separator: "\n")
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if snapshot.isEmpty {
+                    self.onUpdate("Codex visible; no text found", ["Waiting for visible Codex conversation text."])
+                } else if snapshot != self.lastSnapshot {
+                    self.lastSnapshot = snapshot
+                    self.onUpdate("Mirroring visible conversation", Array(lines))
+                }
+            }
+        }
+    }
+
+    private func targetWindow(for app: NSRunningApplication) -> CGWindowID? {
+        guard let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+            return nil
+        }
+        for window in windows {
+            guard let ownerPID = window[kCGWindowOwnerPID as String] as? Int32,
+                  ownerPID == app.processIdentifier,
+                  let number = window[kCGWindowNumber as String] as? UInt32 else { continue }
+            return CGWindowID(number)
+        }
+        return nil
     }
 
     private func targetCodexApplication() -> NSRunningApplication? {
