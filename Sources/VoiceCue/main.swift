@@ -4,21 +4,40 @@ import AVFoundation
 import Speech
 
 final class TerminalUI {
+    private let violet = "\u{001B}[38;5;183m"
+    private let green = "\u{001B}[38;5;114m"
+    private let muted = "\u{001B}[38;5;245m"
+    private let reset = "\u{001B}[0m"
+
     func start() {
+        print("\u{001B}[2J\u{001B}[H", terminator: "")
+        print("\(violet)  VoiceCue\(reset)  \(muted)· wake phrase listener\(reset)")
+        print("\(muted)  ───────────────────────────────────────────\(reset)")
         print("")
-        print("  VoiceCue")
-        print("  ─────────")
-        print("  Listening for: Codex or Hey Codex")
-        print("  Action:        Control-Shift-V")
+        print("  \(green)●\(reset)  Listening for \(violet)Codex\(reset) or \(violet)Hey Codex\(reset)")
+        print("  \(muted)Sends Control–Shift–V to the frontmost app\(reset)")
         print("")
-        render(status: "Starting up…")
-        print("  Control-C to stop  •  voicecue update to update")
+        print("  MICROPHONE")
+        print("  [                    ]  0%")
         print("")
+        print("  STATUS")
+        print("  Starting up…")
+        print("")
+        print("  \(muted)Control-C to stop  ·  voicecue update to update\(reset)")
         fflush(stdout)
     }
 
     func render(status: String) {
-        print("  Status: \(status)")
+        print("\u{001B}[11;1H  \(status)\u{001B}[K", terminator: "")
+        fflush(stdout)
+    }
+
+    func renderMicrophone(level: Double) {
+        let clamped = min(max(level, 0), 1)
+        let filled = Int((clamped * 20).rounded())
+        let bar = String(repeating: "█", count: filled) + String(repeating: "·", count: 20 - filled)
+        let percent = Int((clamped * 100).rounded())
+        print("\u{001B}[8;1H  [\(green)\(bar)\(reset)]  \(percent)%\u{001B}[K", terminator: "")
         fflush(stdout)
     }
 }
@@ -29,6 +48,7 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var lastTrigger = Date.distantPast
+    private var lastMeterUpdate = Date.distantPast
     private let ui: TerminalUI
 
     init(ui: TerminalUI) {
@@ -77,8 +97,9 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
         let input = audioEngine.inputNode
         let format = input.outputFormat(forBus: 0)
         input.removeTap(onBus: 0)
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             recognitionRequest.append(buffer)
+            self?.updateMeter(from: buffer)
         }
 
         task = recognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
@@ -107,6 +128,24 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
         audioEngine.inputNode.removeTap(onBus: 0)
         request?.endAudio()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in self?.beginRecognition() }
+    }
+
+    private func updateMeter(from buffer: AVAudioPCMBuffer) {
+        guard Date().timeIntervalSince(lastMeterUpdate) > 0.08,
+              let samples = buffer.floatChannelData?[0] else { return }
+        lastMeterUpdate = Date()
+        let count = Int(buffer.frameLength)
+        guard count > 0 else { return }
+        var total = 0.0
+        for index in 0..<count {
+            let sample = Double(samples[index])
+            total += sample * sample
+        }
+        let rms = sqrt(total / Double(count))
+        let normalized = min(1, max(0, (20 * log10(max(rms, 0.00001)) + 60) / 60))
+        DispatchQueue.main.async { [weak self] in
+            self?.ui.renderMicrophone(level: normalized)
+        }
     }
 
     private func triggerPasteShortcut() {
