@@ -20,7 +20,7 @@ The installer builds VoiceCue, places it in Applications, and adds a `voicecue` 
 voicecue
 ```
 
-On first run, macOS will ask for Microphone, Speech Recognition, and Accessibility access. Grant them for VoiceCue. Accessibility is what lets it send the shortcut to the app you are using.
+On first run, VoiceCue opens macOS permission prompts for Microphone, Speech Recognition, and Accessibility. Grant them for VoiceCue. Accessibility is what lets it send the shortcut to the app you are using.
 
 Press Control-C in the terminal to stop it.
 

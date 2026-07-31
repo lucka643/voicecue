@@ -96,8 +96,9 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
     }
 }
 
-guard AXIsProcessTrusted() else {
-    fputs("Enable Accessibility for VoiceCue in System Settings, then run it again.\\n", stderr)
+let accessibilityOptions = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+guard AXIsProcessTrustedWithOptions(accessibilityOptions) else {
+    fputs("VoiceCue opened the Accessibility permission prompt. Enable it in System Settings, then run VoiceCue again.\\n", stderr)
     exit(1)
 }
 
