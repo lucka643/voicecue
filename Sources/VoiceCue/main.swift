@@ -1,8 +1,10 @@
 import ApplicationServices
 import AppKit
 import AVFoundation
+import CoreMedia
 import Darwin
 import Foundation
+import ScreenCaptureKit
 import Speech
 import Vision
 
@@ -16,6 +18,7 @@ final class TerminalUI {
     private var codexState = "Waiting for Codex"
     private var codexLines = ["Open a Codex task to mirror visible activity here."]
     private var spokenPrompt = ""
+    private var turnState = "Listening for your voice"
     private var animationFrame = 0
     private var animationTimer: Timer?
 
@@ -50,6 +53,11 @@ final class TerminalUI {
 
     func renderSpokenPrompt(_ prompt: String) {
         spokenPrompt = prompt
+        redrawCodexActivity()
+    }
+
+    func renderTurn(_ state: String) {
+        turnState = state
         redrawCodexActivity()
     }
 
@@ -89,10 +97,11 @@ final class TerminalUI {
         let height = terminalSize().height
         let firstRow = max(6, height - 14)
         writeRow(firstRow, "  YOU  \(muted)· \(spokenPrompt.isEmpty ? "Waiting for a voice command…" : spokenPrompt)", color: violet)
-        writeRow(firstRow + 2, "  CODEX SESSION  \(muted)· \(codexState)", color: violet)
-        for offset in 0..<6 {
+        writeRow(firstRow + 2, "  TURN  \(muted)· \(turnState)", color: violet)
+        writeRow(firstRow + 3, "  CODEX SESSION  \(muted)· \(codexState)", color: violet)
+        for offset in 0..<5 {
             let line = offset < codexLines.count ? codexLines[offset] : ""
-            writeRow(firstRow + offset + 3, "    \(line)", color: offset == 0 ? reset : muted)
+            writeRow(firstRow + offset + 4, "    \(line)", color: offset == 0 ? reset : muted)
         }
     }
 
@@ -259,6 +268,120 @@ final class CodexActivityMirror {
     }
 }
 
+final class TurnCoordinator {
+    private let ui: TerminalUI
+    private var userActiveUntil = Date.distantPast
+    private var systemActiveUntil = Date.distantPast
+    private var waitingForCodexUntil = Date.distantPast
+    private var timer: Timer?
+
+    init(ui: TerminalUI) {
+        self.ui = ui
+    }
+
+    func start() {
+        refresh()
+        timer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { [weak self] _ in
+            self?.refresh()
+        }
+    }
+
+    func heardUserAudio(level: Double) {
+        guard level > 0.06 else { return }
+        userActiveUntil = Date().addingTimeInterval(0.45)
+    }
+
+    func heardSystemAudio(level: Double) {
+        guard level > 0.025 else { return }
+        systemActiveUntil = Date().addingTimeInterval(0.55)
+    }
+
+    func sentWakeShortcut() {
+        waitingForCodexUntil = Date().addingTimeInterval(12)
+        refresh()
+    }
+
+    private func refresh() {
+        let now = Date()
+        if systemActiveUntil > now {
+            ui.renderTurn("Codex is speaking")
+        } else if userActiveUntil > now {
+            ui.renderTurn("You are speaking")
+        } else if waitingForCodexUntil > now {
+            ui.renderTurn("Codex is thinking")
+        } else {
+            ui.renderTurn("Listening for your voice")
+        }
+    }
+}
+
+final class SystemAudioMonitor: NSObject, SCStreamOutput {
+    private let onLevel: (Double) -> Void
+    private var stream: SCStream?
+    private var lastMeterUpdate = Date.distantPast
+
+    init(onLevel: @escaping (Double) -> Void) {
+        self.onLevel = onLevel
+    }
+
+    func start() {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                guard let display = content.displays.first else { return }
+                let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+                let configuration = SCStreamConfiguration()
+                configuration.capturesAudio = true
+                configuration.sampleRate = 48_000
+                configuration.channelCount = 2
+                configuration.width = 2
+                configuration.height = 2
+                let stream = SCStream(filter: filter, configuration: configuration, delegate: nil)
+                try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: .global(qos: .userInteractive))
+                try await stream.startCapture()
+                self.stream = stream
+            } catch {
+                DispatchQueue.main.async { [weak self] in
+                    self?.onLevel(0)
+                }
+            }
+        }
+    }
+
+    func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
+        guard type == .audio,
+              Date().timeIntervalSince(lastMeterUpdate) > 0.08 else { return }
+        lastMeterUpdate = Date()
+        var audioBufferList = AudioBufferList(mNumberBuffers: 0, mBuffers: AudioBuffer())
+        var retainedBlockBuffer: CMBlockBuffer?
+        let result = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+            sampleBuffer,
+            bufferListSizeNeededOut: nil,
+            bufferListOut: &audioBufferList,
+            bufferListSize: MemoryLayout<AudioBufferList>.size,
+            blockBufferAllocator: kCFAllocatorDefault,
+            blockBufferMemoryAllocator: kCFAllocatorDefault,
+            flags: kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment,
+            blockBufferOut: &retainedBlockBuffer
+        )
+        guard result == noErr,
+              let data = audioBufferList.mBuffers.mData else { return }
+        let count = Int(audioBufferList.mBuffers.mDataByteSize) / MemoryLayout<Float>.size
+        guard count > 0 else { return }
+        let samples = data.assumingMemoryBound(to: Float.self)
+        var total = 0.0
+        for index in 0..<count {
+            let value = Double(samples[index])
+            total += value * value
+        }
+        let rms = sqrt(total / Double(count))
+        DispatchQueue.main.async { [weak self] in
+            self?.onLevel(rms)
+        }
+    }
+}
+
 final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
     private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en_US"))!
     private let audioEngine = AVAudioEngine()
@@ -269,9 +392,11 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
     private var lastShownPrompt = ""
     private var lastMeterUpdate = Date.distantPast
     private let ui: TerminalUI
+    private let turnCoordinator: TurnCoordinator
 
-    init(ui: TerminalUI) {
+    init(ui: TerminalUI, turnCoordinator: TurnCoordinator) {
         self.ui = ui
+        self.turnCoordinator = turnCoordinator
     }
 
     func start() {
@@ -371,6 +496,7 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
         let normalized = min(1, max(0, (20 * log10(max(rms, 0.00001)) + 60) / 60))
         DispatchQueue.main.async { [weak self] in
             self?.ui.renderMicrophone(level: normalized)
+            self?.turnCoordinator.heardUserAudio(level: normalized)
         }
     }
 
@@ -423,12 +549,19 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
         up?.post(tap: .cghidEventTap)
         DispatchQueue.main.async { [weak self] in
             self?.ui.render(status: "Wake phrase heard — sent Control–Shift–V.")
+            self?.turnCoordinator.sentWakeShortcut()
         }
     }
 }
 
 let ui = TerminalUI()
 ui.start()
+let turnCoordinator = TurnCoordinator(ui: ui)
+turnCoordinator.start()
+let systemAudioMonitor = SystemAudioMonitor { level in
+    turnCoordinator.heardSystemAudio(level: level)
+}
+systemAudioMonitor.start()
 let codexMirror = CodexActivityMirror { state, lines in
     ui.renderCodexActivity(state: state, lines: lines)
 }
@@ -441,7 +574,7 @@ func beginWhenAccessibilityIsReady() {
         permissionTimer?.invalidate()
         permissionTimer = nil
         ui.render(status: "Accessibility enabled — preparing microphone…")
-        let newListener = WakeWordListener(ui: ui)
+        let newListener = WakeWordListener(ui: ui, turnCoordinator: turnCoordinator)
         listener = newListener
         newListener.start()
         return
