@@ -11,6 +11,7 @@ LAUNCHER="$BIN_DIR/voicecue"
 rm -rf "$TARGET_APP"
 cp -R "$APP_BUNDLE" "$TARGET_APP"
 mkdir -p "$BIN_DIR"
+rm -f "$LAUNCHER"
 cat > "$LAUNCHER" <<LAUNCHER_SCRIPT
 #!/usr/bin/env bash
 set -euo pipefail
