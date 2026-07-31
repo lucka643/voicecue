@@ -104,6 +104,7 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
         task?.cancel()
         let recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
         recognitionRequest.shouldReportPartialResults = true
+        recognitionRequest.contextualStrings = ["Codex", "Hey Codex"]
         request = recognitionRequest
 
         let input = audioEngine.inputNode
@@ -117,7 +118,7 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
         task = recognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
             if let text = result?.bestTranscription.formattedString.lowercased() {
                 self?.updateHeardWords(from: text)
-                if text.contains("codex") {
+                if self?.containsWakePhrase(text) == true {
                     self?.triggerPasteShortcut()
                 }
             }
@@ -170,6 +171,15 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
         DispatchQueue.main.async { [weak self] in
             self?.ui.renderHeard(words)
         }
+    }
+
+    private func containsWakePhrase(_ transcript: String) -> Bool {
+        let normalizedWords = transcript
+            .lowercased()
+            .split(whereSeparator: { $0.isWhitespace || $0.isPunctuation })
+            .map(String.init)
+        let acceptedSoundAlikes = ["codex", "codec", "kodak", "codak"]
+        return normalizedWords.contains { acceptedSoundAlikes.contains($0) }
     }
 
     private func triggerPasteShortcut() {
