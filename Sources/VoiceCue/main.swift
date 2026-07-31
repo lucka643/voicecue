@@ -32,7 +32,30 @@ final class TerminalUI {
 
     func renderMicrophone(level: Double) {
         microphoneLevel = min(max(level, 0), 1)
-        renderLiveRow(9, text: microphoneMeterLine(), color: green)
+        let width = terminalSize().width
+        let meterWidth = max(12, min(42, width - 30))
+        let filled = Int((microphoneLevel * Double(meterWidth)).rounded())
+        let percent = Int((microphoneLevel * 100).rounded())
+        let label: String
+        let activeColor: String
+        switch percent {
+        case 0..<8:
+            label = "QUIET"
+            activeColor = cyan
+        case 8..<55:
+            label = "ACTIVE"
+            activeColor = green
+        default:
+            label = "LOUD"
+            activeColor = violet
+        }
+        let active = String(repeating: "█", count: filled)
+        let inactive = String(repeating: "─", count: meterWidth - filled)
+        let prefix = "     \(String(format: "%3d", percent))%  \(label)  "
+        let visibleLength = prefix.count + meterWidth
+        let padding = max(0, width - visibleLength)
+        print("\u{001B}[9;1H\(panel)\(cyan)\(prefix)\(activeColor)\(active)\(muted)\(inactive)\(reset)\(panel)\(String(repeating: " ", count: padding))\(reset)", terminator: "")
+        fflush(stdout)
     }
 
     private func terminalSize() -> (width: Int, height: Int) {
@@ -41,16 +64,6 @@ final class TerminalUI {
         let width = windowSize.ws_col > 0 ? Int(windowSize.ws_col) : 72
         let height = windowSize.ws_row > 0 ? Int(windowSize.ws_row) : 22
         return (width, height)
-    }
-
-    private func microphoneMeterLine() -> String {
-        let size = terminalSize()
-        let contentWidth = max(40, size.width - 4)
-        let percent = Int((microphoneLevel * 100).rounded())
-        let meterWidth = max(12, min(58, contentWidth - 22))
-        let filled = Int((microphoneLevel * Double(meterWidth)).rounded())
-        let meter = String(repeating: "▰", count: filled) + String(repeating: "▱", count: meterWidth - filled)
-        return "     [\(meter)]  \(percent)%"
     }
 
     private func renderLiveRow(_ row: Int, text: String, color: String) {
