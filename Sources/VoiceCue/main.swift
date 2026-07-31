@@ -124,8 +124,9 @@ final class CodexActivityMirror {
             return
         }
 
-        let root = AXUIElementCreateApplication(app.processIdentifier)
-        let visibleText = collectText(from: root, depth: 0)
+        let applicationElement = AXUIElementCreateApplication(app.processIdentifier)
+        let focusedElement = focusedWindow(for: applicationElement) ?? applicationElement
+        let visibleText = collectText(from: focusedElement, depth: 0)
         let rawLines = visibleText
             .split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -157,6 +158,14 @@ final class CodexActivityMirror {
         }
         return applications.first(where: { ($0.localizedName ?? "").lowercased() == "chatgpt" })
             ?? applications.first(where: isCodexHost)
+    }
+
+    private func focusedWindow(for applicationElement: AXUIElement) -> AXUIElement? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(applicationElement, kAXFocusedWindowAttribute as CFString, &value) == .success else {
+            return nil
+        }
+        return value as! AXUIElement
     }
 
     private func collectText(from element: AXUIElement, depth: Int) -> String {
