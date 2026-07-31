@@ -15,9 +15,15 @@ final class TerminalUI {
     private var status = "Starting up…"
     private var heard = "—"
     private var microphoneLevel = 0.0
+    private var animationFrame = 0
+    private var animationTimer: Timer?
 
     func start() {
         redraw()
+        animationTimer = Timer.scheduledTimer(withTimeInterval: 0.13, repeats: true) { [weak self] _ in
+            self?.animationFrame += 1
+            self?.renderListeningPulse()
+        }
     }
 
     func render(status: String) {
@@ -79,13 +85,12 @@ final class TerminalUI {
         let width = size.width
         let contentWidth = width - 4
         let rule = String(repeating: "─", count: contentWidth)
-        let pulse = microphoneLevel > 0.03 ? "●" : "○"
         let rows = [
             "",
             "  VoiceCue    /    hands-free shortcut control",
             "  \(rule)",
             "",
-            "  \(pulse)  LISTENING",
+            listeningPulseText(),
             "     Say  Codex  or  Hey Codex",
             "",
             "  MICROPHONE",
@@ -121,6 +126,22 @@ final class TerminalUI {
             print("\(panel)\(String(repeating: " ", count: width))\(reset)")
         }
         fflush(stdout)
+    }
+
+    private func listeningPulseText() -> String {
+        let orbitFrames = ["·  ◌  ·", "•  ◌  ·", "·  ◉  •", "·  ◌  •"]
+        let orb: String
+        switch microphoneLevel {
+        case 0..<0.03: orb = "◌"
+        case 0..<0.18: orb = "◍"
+        case 0..<0.55: orb = "◉"
+        default: orb = "●"
+        }
+        return "  \(orbitFrames[animationFrame % orbitFrames.count])   \(orb)  LISTENING"
+    }
+
+    private func renderListeningPulse() {
+        renderLiveRow(5, text: listeningPulseText(), color: violet)
     }
 }
 
