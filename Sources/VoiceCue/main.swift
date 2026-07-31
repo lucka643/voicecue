@@ -106,7 +106,7 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
         hasTriggeredCurrentUtterance = false
         let recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
         recognitionRequest.shouldReportPartialResults = true
-        recognitionRequest.contextualStrings = ["Codex", "Hey Codex"]
+        recognitionRequest.contextualStrings = ["Codex", "Hey Codex", "By Codex", "Bye Codex"]
         request = recognitionRequest
 
         let input = audioEngine.inputNode
