@@ -8,6 +8,8 @@ final class TerminalUI {
     private let green = "\u{001B}[38;5;114m"
     private let muted = "\u{001B}[38;5;245m"
     private let reset = "\u{001B}[0m"
+    private var status = "Starting up…"
+    private var heard = "—"
 
     func start() {
         print("\u{001B}[2J\u{001B}[H", terminator: "")
@@ -21,14 +23,24 @@ final class TerminalUI {
         print("  [                    ]  0%")
         print("")
         print("  STATUS")
-        print("  Starting up…")
+        print("  \(status)  \(muted)· Heard: \(heard)\(reset)")
         print("")
         print("  \(muted)Control-C to stop  ·  voicecue update to update\(reset)")
         fflush(stdout)
     }
 
     func render(status: String) {
-        print("\u{001B}[11;1H  \(status)\u{001B}[K", terminator: "")
+        self.status = status
+        renderStatusLine()
+    }
+
+    func renderHeard(_ words: String) {
+        heard = words.isEmpty ? "—" : words
+        renderStatusLine()
+    }
+
+    private func renderStatusLine() {
+        print("\u{001B}[11;1H  \(status)  \(muted)· Heard: \(heard)\(reset)\u{001B}[K", terminator: "")
         fflush(stdout)
     }
 
@@ -103,9 +115,11 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
         }
 
         task = recognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
-            if let text = result?.bestTranscription.formattedString.lowercased(),
-               text.contains("codex") {
-                self?.triggerPasteShortcut()
+            if let text = result?.bestTranscription.formattedString.lowercased() {
+                self?.updateHeardWords(from: text)
+                if text.contains("codex") {
+                    self?.triggerPasteShortcut()
+                }
             }
             if error != nil || result?.isFinal == true {
                 self?.restartRecognitionSoon()
@@ -145,6 +159,16 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
         let normalized = min(1, max(0, (20 * log10(max(rms, 0.00001)) + 60) / 60))
         DispatchQueue.main.async { [weak self] in
             self?.ui.renderMicrophone(level: normalized)
+        }
+    }
+
+    private func updateHeardWords(from transcript: String) {
+        let words = transcript
+            .split(whereSeparator: { $0.isWhitespace || $0.isPunctuation })
+            .suffix(2)
+            .joined(separator: " ")
+        DispatchQueue.main.async { [weak self] in
+            self?.ui.renderHeard(words)
         }
     }
 
