@@ -22,23 +22,43 @@ final class TerminalUI {
 
     func render(status: String) {
         self.status = status
-        redraw()
+        renderLiveRow(15, text: "  \(status)", color: reset)
     }
 
     func renderHeard(_ words: String) {
         heard = words.isEmpty ? "—" : words
-        redraw()
+        renderLiveRow(12, text: "     \(heard)", color: reset)
     }
 
     func renderMicrophone(level: Double) {
         microphoneLevel = min(max(level, 0), 1)
-        redraw()
+        renderLiveRow(9, text: microphoneMeterLine(), color: green)
     }
 
     private func terminalSize() -> (width: Int, height: Int) {
         var windowSize = winsize()
         ioctl(STDOUT_FILENO, TIOCGWINSZ, &windowSize)
-        return (max(Int(windowSize.ws_col), 72), max(Int(windowSize.ws_row), 22))
+        let width = windowSize.ws_col > 0 ? Int(windowSize.ws_col) : 72
+        let height = windowSize.ws_row > 0 ? Int(windowSize.ws_row) : 22
+        return (width, height)
+    }
+
+    private func microphoneMeterLine() -> String {
+        let size = terminalSize()
+        let contentWidth = max(40, size.width - 4)
+        let percent = Int((microphoneLevel * 100).rounded())
+        let meterWidth = max(12, min(58, contentWidth - 22))
+        let filled = Int((microphoneLevel * Double(meterWidth)).rounded())
+        let meter = String(repeating: "▰", count: filled) + String(repeating: "▱", count: meterWidth - filled)
+        return "     [\(meter)]  \(percent)%"
+    }
+
+    private func renderLiveRow(_ row: Int, text: String, color: String) {
+        let width = terminalSize().width
+        let clipped = String(text.prefix(width))
+        let padding = max(0, width - clipped.count)
+        print("\u{001B}[\(row);1H\(panel)\(color)\(clipped)\(reset)\(panel)\(String(repeating: " ", count: padding))\(reset)", terminator: "")
+        fflush(stdout)
     }
 
     private func redraw() {
@@ -46,10 +66,6 @@ final class TerminalUI {
         let width = size.width
         let contentWidth = width - 4
         let rule = String(repeating: "─", count: contentWidth)
-        let percent = Int((microphoneLevel * 100).rounded())
-        let meterWidth = max(28, min(58, contentWidth - 22))
-        let filled = Int((microphoneLevel * Double(meterWidth)).rounded())
-        let meter = String(repeating: "▰", count: filled) + String(repeating: "▱", count: meterWidth - filled)
         let pulse = microphoneLevel > 0.03 ? "●" : "○"
         let rows = [
             "",
@@ -60,7 +76,7 @@ final class TerminalUI {
             "     Say  Codex  or  Hey Codex",
             "",
             "  MICROPHONE",
-            "     [\(meter)]  \(percent)%",
+            microphoneMeterLine(),
             "",
             "  LIVE TRANSCRIPT",
             "     \(heard)",
@@ -84,8 +100,9 @@ final class TerminalUI {
             case 18: color = muted
             default: color = reset
             }
-            let padding = max(0, width - row.count)
-            print("\(background)\(color)\(row)\(reset)\(background)\(String(repeating: " ", count: padding))\(reset)")
+            let clipped = String(row.prefix(width))
+            let padding = max(0, width - clipped.count)
+            print("\(background)\(color)\(clipped)\(reset)\(background)\(String(repeating: " ", count: padding))\(reset)")
         }
         for _ in rows.count..<size.height {
             print("\(panel)\(String(repeating: " ", count: width))\(reset)")
