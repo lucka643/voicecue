@@ -1,45 +1,65 @@
 # VoiceCue
 
-VoiceCue is a deliberately small macOS command-line app. It listens for **“Codex”** or **“Hey Codex”**, then sends **Control–Shift–V** to the frontmost app.
+> A small, private macOS voice shortcut for opening or closing your coding assistant hands-free.
 
-It does nothing else: no network requests, no recordings saved to disk, no background account, and no text processing beyond Apple’s speech-recognition service.
+VoiceCue listens for **“Codex”** or **“Hey Codex”** and sends **Control–Shift–V** to the frontmost app. It is designed for one job: turning a keyboard shortcut into a dependable wake phrase.
+
+## What it does
+
+| VoiceCue listens for | VoiceCue does |
+| --- | --- |
+| `Codex` or `Hey Codex` | Sends `Control–Shift–V` once |
+| Common sound-alikes, such as `Kodak` or `codec` | Treats them as `Codex` |
+
+- Live microphone level meter, so you can see audio is reaching the app.
+- A compact “Heard” readout showing the last two recognized words.
+- One activation per spoken phrase—no repeated toggles from partial transcripts.
+- No account, no saved audio, and no saved transcripts.
 
 ## Install
 
-Copy and paste this into Terminal:
+Copy this into Terminal:
 
 ```bash
 git clone https://github.com/lucka643/voicecue.git && cd voicecue && ./install.sh
 ```
 
-The installer builds VoiceCue, places it in Applications, and adds a `voicecue` command to your user-local bin folder. Restart Terminal after installing if that folder is not already on your PATH.
+The installer builds VoiceCue, places the app in Applications, and adds the `voicecue` command to your local command path.
 
-## Run
+> If Terminal cannot find `voicecue` afterward, close and reopen Terminal once.
+
+## Use
+
+Start the listener:
 
 ```bash
 voicecue
 ```
 
-On first run, VoiceCue opens macOS permission prompts for Microphone, Speech Recognition, and Accessibility. Grant them for VoiceCue. Accessibility is what lets it send the shortcut to the app you are using.
+On the first run, allow VoiceCue to use:
 
-Press Control-C in the terminal to stop it.
+1. **Microphone** — to hear the wake phrase.
+2. **Speech Recognition** — to recognize it.
+3. **Accessibility** — to send the keyboard shortcut to your active app.
 
-## Update
+Press `Control-C` whenever you want to stop VoiceCue.
+
+## Keep it current
 
 ```bash
 voicecue update
 ```
 
-This fetches the newest version from the repository and reinstalls it.
+This gets the newest version from this repository, rebuilds it, and reinstalls it.
 
 ## Requirements
 
 - macOS 14 or later
-- Xcode Command Line Tools (`xcode-select --install`)
+- Xcode Command Line Tools: `xcode-select --install`
 
 ## Privacy
 
-VoiceCue does not save audio or transcripts. Speech recognition is provided by macOS and may use Apple’s speech service depending on your system settings.
+VoiceCue does not create an account, save recordings, or save transcripts. Speech recognition is supplied by macOS and may use Apple’s speech service depending on system settings.
 
 ## Development
 
@@ -49,4 +69,4 @@ VoiceCue does not save audio or transcripts. Speech recognition is provided by m
 
 ## License
 
-MIT
+[MIT](LICENSE)
