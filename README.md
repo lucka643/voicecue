@@ -24,6 +24,14 @@ On first run, VoiceCue opens macOS permission prompts for Microphone, Speech Rec
 
 Press Control-C in the terminal to stop it.
 
+## Update
+
+```bash
+voicecue update
+```
+
+This fetches the newest version from the repository and reinstalls it.
+
 ## Requirements
 
 - macOS 14 or later
