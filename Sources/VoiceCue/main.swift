@@ -106,7 +106,7 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
         hasTriggeredCurrentUtterance = false
         let recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
         recognitionRequest.shouldReportPartialResults = true
-        recognitionRequest.contextualStrings = ["Codex", "Hey Codex", "By Codex", "Bye Codex"]
+        recognitionRequest.contextualStrings = ["Codex", "Hey Codex", "By Codex", "Bye Codex", "See you later"]
         request = recognitionRequest
 
         let input = audioEngine.inputNode
@@ -182,7 +182,9 @@ final class WakeWordListener: NSObject, SFSpeechRecognizerDelegate {
             .split(whereSeparator: { $0.isWhitespace || $0.isPunctuation })
             .map(String.init)
         let acceptedSoundAlikes = ["codex", "codec", "kodak", "codak"]
-        return normalizedWords.contains { acceptedSoundAlikes.contains($0) }
+        let containsCodexSoundAlike = normalizedWords.contains { acceptedSoundAlikes.contains($0) }
+        let containsSeeYouLater = normalizedWords.joined(separator: " ").contains("see you later")
+        return containsCodexSoundAlike || containsSeeYouLater
     }
 
     private func triggerPasteShortcut() {
