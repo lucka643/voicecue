@@ -9,7 +9,7 @@ It does nothing else: no network requests, no recordings saved to disk, no backg
 Copy and paste this into Terminal:
 
 ```bash
-git clone https://github.com/REPLACE-WITH-YOUR-USERNAME/voicecue.git && cd voicecue && ./install.sh
+git clone https://github.com/lucka643/voicecue.git && cd voicecue && ./install.sh
 ```
 
 The installer builds VoiceCue, places it in Applications, and adds a `voicecue` command to your user-local bin folder. Restart Terminal after installing if that folder is not already on your PATH.
