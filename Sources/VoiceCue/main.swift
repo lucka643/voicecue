@@ -4,25 +4,21 @@ import AVFoundation
 import Speech
 
 final class TerminalUI {
-    private let accent = "\u{001B}[38;5;183m"
-    private let muted = "\u{001B}[38;5;245m"
-    private let green = "\u{001B}[38;5;114m"
-    private let reset = "\u{001B}[0m"
-
     func start() {
-        print("\u{001B}[2J\u{001B}[H", terminator: "")
-        print("\(accent)VoiceCue\(reset)")
-        print("\(muted)A quiet wake phrase listener\(reset)\n")
-        print("  \(green)●\(reset)  Listening for \(accent)Codex\(reset) or \(accent)Hey Codex\(reset)")
-        print("  \(muted)When heard, VoiceCue sends Control–Shift–V to your active app.\(reset)\n")
-        print("\(muted)  STATUS\(reset)")
+        print("")
+        print("  VoiceCue")
+        print("  ─────────")
+        print("  Listening for: Codex or Hey Codex")
+        print("  Action:        Control-Shift-V")
+        print("")
         render(status: "Starting up…")
-        print("\n\n\(muted)  Control-C to stop  ·  voicecue update to update\(reset)")
+        print("  Control-C to stop  •  voicecue update to update")
+        print("")
         fflush(stdout)
     }
 
     func render(status: String) {
-        print("\u{001B}[8;1H  \(green)●\(reset)  \(status)\u{001B}[K", terminator: "")
+        print("  Status: \(status)")
         fflush(stdout)
     }
 }
